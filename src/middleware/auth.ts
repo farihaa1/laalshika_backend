@@ -1,23 +1,42 @@
-import { NextFunction, Request, Response } from "express"
-import AppError from "../error/AppError";
+import { NextFunction, Request, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
-import User from "../modules/users/user.model";
+import config from "../config";
+import AppError from "../error/AppError";
+import { UserRole } from "../modules/users/user.constrain";
 
-
-export const auth = (role: string[]) => {
-    return async (req: Request, res: Response, next: NextFunction) => {
-        const token = req.headers.authorization;
-        if (!token) throw new AppError(401, "authorization failed")
-
-        const isVerified = jwt.verify(token, 'very secret') as JwtPayload;
-        const isUserExist = await User.findOne({ email: isVerified.email });
-
-        if (!isUserExist) throw new AppError(404, "user not found")
-
-        if (!role.includes(isVerified.role)) throw new AppError(401, "you can't get access")
-
-        req.user = isUserExist;
-
-        next();
-    }
+export interface AuthUser {
+  email: string;
+  role: UserRole;
 }
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: AuthUser;
+    }
+  }
+}
+
+export const auth = (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const token = req.cookies?.accessToken;
+
+    if (!token) {
+      throw new AppError(401, "You are not authenticated");
+    }
+
+    const decoded = jwt.verify(
+      token,
+      config.jwt.jwt_access_secret as string,
+    ) as JwtPayload;
+
+    req.user = {
+      email: decoded.email,
+      role: decoded.role,
+    };
+
+    next();
+  } catch (error) {
+    next(error);
+  }
+};

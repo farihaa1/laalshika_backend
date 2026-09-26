@@ -1,76 +1,123 @@
 import { Request, Response } from "express";
-import { catchAsync } from "../utils/catchAsync";
-import { sendResponse } from "../utils/sendResponse";
+import type { CookieOptions } from "express";
+import httpStatus from "http-status";
+
 import { userServices } from "./user.service";
 import config from "../../config";
-import httpStatus from "http-status";
-import User from "./user.model";
+import { sendResponse } from "../utils/sendResponse";
+import { catchAsync } from "../utils/catchAsync";
 
+const accessTokenCookieOptions: CookieOptions = {
+  maxAge: 15 * 60 * 1000, // 15 minutes
+  httpOnly: true,
+  secure: config.node_env === "production",
+  sameSite: "lax",
+};
 
+const refreshTokenCookieOptions: CookieOptions = {
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+  httpOnly: true,
+  secure: config.node_env === "production",
+  sameSite: "lax",
+};
 
 const registerUser = catchAsync(async (req: Request, res: Response) => {
-    const payload = req.body;
+  const data = await userServices.registerUser(req.body);
 
-    const data = await userServices.registerUser(payload);
-
-    sendResponse(res, {
-        statusCode: 201,
-        success: true,
-        message: "User created successfully",
-        data,
-    });
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: "Account created successfully",
+    data,
+  });
 });
 
 const loginUser = catchAsync(async (req: Request, res: Response) => {
-    const payload = req.body;
+  const data = await userServices.loginUser(req.body);
 
-    const data = await userServices.loginUser(payload);
+  res.cookie("accessToken", data.accessToken, accessTokenCookieOptions);
 
-    res.cookie('accessToken', data.accessToken, {
-        secure: config.node_env !== 'development',
-        httpOnly: true,
-        sameSite: 'lax',
-    });
+  res.cookie("refreshToken", data.refreshToken, refreshTokenCookieOptions);
 
-    res.cookie('refreshToken', data.refreshToken, {
-        secure: config.node_env !== 'development',
-        httpOnly: true,
-    });
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: 'User Login Successfully',
-        data,
-    });
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Login successful",
+    data: {
+      user: data.user,
+    },
+  });
 });
 
-const getUser = catchAsync(async (req: Request, res: Response) => {
-    const data = await User.find();
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: 'User retrieved Successfully',
-        data,
+const getMe = catchAsync(async (req: Request, res: Response) => {
+  if (!req.user) {
+    return sendResponse(res, {
+      statusCode: httpStatus.UNAUTHORIZED,
+      success: false,
+      message: "Unauthorized",
+      data: null,
     });
+  }
+
+  const data = await userServices.getMe(req.user.email);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "User retrieved successfully",
+    data,
+  });
 });
+
 const refreshToken = catchAsync(async (req: Request, res: Response) => {
-    const refreshToken = req.cookies.refreshToken;
+  const token = req.cookies?.refreshToken;
 
-    const data = await userServices.refreshToken(refreshToken);
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: 'User Registered Successfully',
-        data,
+  if (!token) {
+    return sendResponse(res, {
+      statusCode: httpStatus.UNAUTHORIZED,
+      success: false,
+      message: "Refresh token is missing",
+      data: null,
     });
+  }
+
+  const data = await userServices.refreshToken(token);
+
+  res.cookie("accessToken", data.accessToken, accessTokenCookieOptions);
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Access token refreshed",
+    data: null,
+  });
+});
+
+const logoutUser = catchAsync(async (req: Request, res: Response) => {
+  res.clearCookie("accessToken", {
+    httpOnly: true,
+    secure: config.node_env === "production",
+    sameSite: "lax",
+  });
+
+  res.clearCookie("refreshToken", {
+    httpOnly: true,
+    secure: config.node_env === "production",
+    sameSite: "lax",
+  });
+
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: "Logged out successfully",
+    data: null,
+  });
 });
 
 export const userController = {
-    registerUser,
-    getUser,
-    loginUser,
-    refreshToken
+  registerUser,
+  loginUser,
+  getMe,
+  refreshToken,
+  logoutUser,
 };

@@ -1,43 +1,48 @@
 import { model, Schema } from "mongoose";
 import { IUser } from "./user.interface";
+import { UserRole } from "./user.constrain";
 
-const userSchema = new Schema<IUser>({
+const userSchema = new Schema<IUser>(
+  {
     name: {
-        type: String,
-        required: true,
-        trim: true,
-        min: 5,
-        max: 15
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 100,
     },
+
     email: {
-        type: String,
-        required: true,
-        // validate
-        validate: {
-            validator: function (email) {
-                const regex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/;
-                return regex.test(email);
-            },
-            message: props => `${props.value} is not a valid email!`,
-
-        },
-        immutable: true,
-        unique: [true, "email already exist"]
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
     },
+
     password: {
-        type: String,
-        required: true
+      type: String,
+      required: true,
+      minlength: 8,
     },
-    phone: {
-        type: String,
-        required: true
-    },
-    role: {
-        type: String,
-        enum: { values: ["Admin", "Customer"], message: "{VALUE} is not acceptable" },
-        required: true
-    },
-})
 
-const User = model<IUser>("user", userSchema);
+    phone: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    role: {
+      type: String,
+      enum: Object.values(UserRole),
+      default: UserRole.Customer,
+    },
+  },
+  {
+    timestamps: true,
+  },
+);
+
+const User = model<IUser>("User", userSchema);
+
 export default User;
