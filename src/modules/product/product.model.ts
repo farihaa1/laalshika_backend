@@ -1,7 +1,7 @@
 import { Schema, model } from "mongoose";
 import { IProduct } from "./product.interface";
 
-const productVariantSchema = new Schema(
+const variantAttributeSchema = new Schema(
   {
     name: {
       type: String,
@@ -14,29 +14,64 @@ const productVariantSchema = new Schema(
       required: true,
       trim: true,
     },
+  },
+  {
+    _id: false,
+  },
+);
+
+const productVariantSchema = new Schema(
+  {
+    attributes: {
+      type: [variantAttributeSchema],
+      required: true,
+      default: [],
+    },
+
+    sku: {
+      type: String,
+      trim: true,
+      sparse: true,
+    },
 
     stock: {
       type: Number,
       required: true,
       min: 0,
     },
+
+    price: {
+      type: Number,
+      min: 0,
+    },
+
+    images: {
+      type: [String],
+      default: [],
+    },
   },
-  { _id: false },
+  {
+    _id: false,
+  },
 );
 
 const specificationSchema = new Schema(
   {
-    key: {
+    name: {
       type: String,
       required: true,
+      trim: true,
     },
 
     value: {
       type: String,
       required: true,
+      trim: true,
     },
   },
-  { _id: false },
+  {
+    _id: false,
+  },
 );
 
 const productSchema = new Schema<IProduct>(
@@ -63,6 +98,7 @@ const productSchema = new Schema<IProduct>(
     category: {
       type: String,
       required: true,
+      trim: true,
       index: true,
     },
 
@@ -130,4 +166,6 @@ const productSchema = new Schema<IProduct>(
   },
 );
 
-export const Product = model<IProduct>("Product", productSchema);
+const Product = model<IProduct>("Product", productSchema);
+
+export default Product;

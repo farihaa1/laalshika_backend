@@ -1,13 +1,15 @@
 import { Request, Response } from "express";
+
 import cloudinary from "../../config/cloudinary";
 import config from "../../config";
+
 import { catchAsync } from "../utils/catchAsync";
 import { sendResponse } from "../utils/sendResponse";
 
 const getUploadSignature = catchAsync(async (_req: Request, res: Response) => {
-  const timestamp = Math.round(new Date().getTime() / 1000);
+  const timestamp = Math.round(Date.now() / 1000);
 
-  const folder = "laalshika/products";
+  const folder = "laalshika/categories";
 
   const signature = cloudinary.utils.api_sign_request(
     {
@@ -20,7 +22,7 @@ const getUploadSignature = catchAsync(async (_req: Request, res: Response) => {
   sendResponse(res, {
     statusCode: 200,
     success: true,
-    message: "Upload signature generated successfully",
+    message: "Category upload signature generated successfully",
     data: {
       signature,
       timestamp,
@@ -31,6 +33,6 @@ const getUploadSignature = catchAsync(async (_req: Request, res: Response) => {
   });
 });
 
-export const productUploadController = {
+export const categoryUploadController = {
   getUploadSignature,
 };

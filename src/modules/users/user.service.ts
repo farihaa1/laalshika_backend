@@ -2,10 +2,13 @@ import User from "./user.model";
 import bcrypt from "bcrypt";
 import jwt, { JwtPayload, SignOptions } from "jsonwebtoken";
 
-import { IUser } from "./user.interface";
-import { UserRole } from "./user.constrain";
 import AppError from "../../error/AppError";
 import config from "../../config";
+import { UserRole } from "./user.constrain";
+
+// ============================================================
+// SAFE USER
+// ============================================================
 
 const getSafeUser = (user: any) => {
   return {
@@ -14,37 +17,103 @@ const getSafeUser = (user: any) => {
     email: user.email,
     phone: user.phone,
     role: user.role,
+    authProvider: user.authProvider,
   };
 };
 
-const registerUser = async (payload: Omit<IUser, "role">) => {
+// ============================================================
+// CREATE JWT TOKENS
+// ============================================================
+
+const createTokens = (user: any) => {
+  const jwtPayload = {
+    userId: user._id.toString(),
+    email: user.email,
+    role: user.role,
+  };
+
+  const accessToken = jwt.sign(jwtPayload, config.jwt.jwt_access_secret, {
+    expiresIn: config.jwt.jwt_access_expires,
+  } as SignOptions);
+
+  const refreshToken = jwt.sign(jwtPayload, config.jwt.jwt_refresh_secret, {
+    expiresIn: config.jwt.jwt_refresh_expires,
+  } as SignOptions);
+
+  return {
+    accessToken,
+    refreshToken,
+  };
+};
+
+// ============================================================
+// REGISTER
+// ============================================================
+
+interface RegisterPayload {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+}
+
+const registerUser = async (payload: RegisterPayload) => {
   const email = payload.email.toLowerCase();
 
-  const existingUser = await User.findOne({ email });
+  const existingUser = await User.findOne({
+    email,
+  });
 
   if (existingUser) {
     throw new AppError(409, "Email already exists");
   }
 
-  const hashedPassword = await bcrypt.hash(payload.password, 12);
+  const hashedPassword = await bcrypt.hash(
+    payload.password,
+    config.password_salt_round,
+  );
 
   const user = await User.create({
     name: payload.name,
     email,
     phone: payload.phone,
     password: hashedPassword,
+    authProvider: "local",
     role: UserRole.Customer,
   });
 
   return getSafeUser(user);
 };
 
-const loginUser = async (payload: Pick<IUser, "email" | "password">) => {
+// ============================================================
+// LOGIN
+// ============================================================
+
+interface LoginPayload {
+  email: string;
+  password: string;
+}
+
+const loginUser = async (payload: LoginPayload) => {
   const email = payload.email.toLowerCase();
 
-  const user = await User.findOne({ email }).select("+password");
+  const user = await User.findOne({
+    email,
+  }).select("+password");
 
   if (!user) {
+    throw new AppError(401, "Invalid email or password");
+  }
+
+  // Google-only account
+  if (user.authProvider === "google" && !user.password) {
+    throw new AppError(
+      400,
+      "This account uses Google login. Please continue with Google.",
+    );
+  }
+
+  if (!user.password) {
     throw new AppError(401, "Invalid email or password");
   }
 
@@ -54,26 +123,7 @@ const loginUser = async (payload: Pick<IUser, "email" | "password">) => {
     throw new AppError(401, "Invalid email or password");
   }
 
-  const jwtPayload = {
-    email: user.email,
-    role: user.role,
-  };
-
-  const accessToken = jwt.sign(
-    jwtPayload,
-    config.jwt.jwt_access_secret as string,
-    {
-      expiresIn: config.jwt.jwt_access_expires,
-    } as SignOptions,
-  );
-
-  const refreshToken = jwt.sign(
-    jwtPayload,
-    config.jwt.jwt_refresh_secret as string,
-    {
-      expiresIn: config.jwt.jwt_refresh_expires,
-    } as SignOptions,
-  );
+  const { accessToken, refreshToken } = createTokens(user);
 
   return {
     accessToken,
@@ -81,6 +131,10 @@ const loginUser = async (payload: Pick<IUser, "email" | "password">) => {
     user: getSafeUser(user),
   };
 };
+
+// ============================================================
+// GET ME
+// ============================================================
 
 const getMe = async (email: string) => {
   const user = await User.findOne({
@@ -94,6 +148,10 @@ const getMe = async (email: string) => {
   return getSafeUser(user);
 };
 
+// ============================================================
+// REFRESH TOKEN
+// ============================================================
+
 const refreshToken = async (token: string) => {
   if (!token) {
     throw new AppError(401, "Refresh token is required");
@@ -102,10 +160,7 @@ const refreshToken = async (token: string) => {
   let decoded: JwtPayload;
 
   try {
-    decoded = jwt.verify(
-      token,
-      config.jwt.jwt_refresh_secret as string,
-    ) as JwtPayload;
+    decoded = jwt.verify(token, config.jwt.jwt_refresh_secret) as JwtPayload;
   } catch {
     throw new AppError(401, "Invalid or expired refresh token");
   }
@@ -122,18 +177,7 @@ const refreshToken = async (token: string) => {
     throw new AppError(404, "User not found");
   }
 
-  const jwtPayload = {
-    email: user.email,
-    role: user.role,
-  };
-
-  const accessToken = jwt.sign(
-    jwtPayload,
-    config.jwt.jwt_access_secret as string,
-    {
-      expiresIn: config.jwt.jwt_access_expires,
-    } as SignOptions,
-  );
+  const { accessToken } = createTokens(user);
 
   return {
     accessToken,

@@ -1,5 +1,6 @@
 import AppError from "../../error/AppError";
-import { Product } from "./product.model";
+import { IProductVariant, IProductSpecification } from "./product.interface";
+import Product from "./product.model";
 
 interface ProductQuery {
   search?: string;
@@ -9,11 +10,37 @@ interface ProductQuery {
   sort?: string;
   page?: string;
   limit?: string;
+  isActive?: string;
+  isFeatured?: string;
 }
 
-const createProduct = async (payload: any) => {
+interface CreateProductPayload {
+  name: string;
+  slug: string;
+  description: string;
+  category: string;
+  price: number;
+  discountPrice?: number;
+  images: string[];
+  variants?: IProductVariant[];
+  stock: number;
+  specifications?: IProductSpecification[];
+  isFeatured?: boolean;
+  isActive?: boolean;
+}
+
+type UpdateProductPayload = Partial<CreateProductPayload>;
+
+const createProduct = async (payload: CreateProductPayload) => {
   const existingProduct = await Product.findOne({
-    $or: [{ slug: payload.slug }, { name: payload.name }],
+    $or: [
+      {
+        slug: payload.slug,
+      },
+      {
+        name: payload.name,
+      },
+    ],
   });
 
   if (existingProduct) {
@@ -38,49 +65,95 @@ const getProducts = async (query: ProductQuery) => {
     sort = "newest",
     page = "1",
     limit = "12",
+    isActive,
+    isFeatured,
   } = query;
 
   const pageNumber = Math.max(Number(page) || 1, 1);
+
   const limitNumber = Math.min(Math.max(Number(limit) || 12, 1), 50);
 
   const skip = (pageNumber - 1) * limitNumber;
 
-  const filter: Record<string, any> = {
-    isActive: true,
-  };
+  const filter: {
+    isActive?: boolean;
+    isFeatured?: boolean;
+    $or?: Array<Record<string, unknown>>;
+    $and?: Array<Record<string, unknown>>;
+    category?: string;
+  } = {};
 
-  // Search
+  /*
+   * ACTIVE FILTER
+   *
+   * Public shop normally sends nothing,
+   * so we keep active products by default.
+   *
+   * Admin can explicitly request:
+   * ?isActive=true
+   * ?isActive=false
+   */
+  if (isActive === "true") {
+    filter.isActive = true;
+  } else if (isActive === "false") {
+    filter.isActive = false;
+  } else {
+    // Default for public product listing
+    filter.isActive = true;
+  }
+
+  /*
+   * FEATURED FILTER
+   *
+   * ?isFeatured=true
+   * ?isFeatured=false
+   */
+  if (isFeatured === "true") {
+    filter.isFeatured = true;
+  } else if (isFeatured === "false") {
+    filter.isFeatured = false;
+  }
+
+  /*
+   * SEARCH
+   */
   if (search?.trim()) {
+    const searchRegex = search.trim();
+
     filter.$or = [
       {
         name: {
-          $regex: search.trim(),
+          $regex: searchRegex,
           $options: "i",
         },
       },
       {
         description: {
-          $regex: search.trim(),
+          $regex: searchRegex,
           $options: "i",
         },
       },
       {
         category: {
-          $regex: search.trim(),
+          $regex: searchRegex,
           $options: "i",
         },
       },
     ];
   }
 
-  // Category
+  /*
+   * CATEGORY
+   */
   if (category?.trim()) {
     filter.category = category.trim();
   }
 
-  // Price
+  /*
+   * PRICE FILTER
+   */
   if (minPrice || maxPrice) {
-    filter.$and = filter.$and || [];
+    filter.$and = [];
 
     if (minPrice) {
       filter.$and.push({
@@ -123,7 +196,9 @@ const getProducts = async (query: ProductQuery) => {
     }
   }
 
-  // Sorting
+  /*
+   * SORTING
+   */
   let sortOption: Record<string, 1 | -1> = {
     createdAt: -1,
   };
@@ -158,8 +233,12 @@ const getProducts = async (query: ProductQuery) => {
       sortOption = {
         createdAt: -1,
       };
+      break;
   }
 
+  /*
+   * FETCH PRODUCTS
+   */
   const [products, total] = await Promise.all([
     Product.find(filter).sort(sortOption).skip(skip).limit(limitNumber).lean(),
 
@@ -176,12 +255,6 @@ const getProducts = async (query: ProductQuery) => {
       totalPages: Math.ceil(total / limitNumber),
     },
   };
-};
-
-const getCategories = async () => {
-  return Product.distinct("category", {
-    isActive: true,
-  });
 };
 
 const getProductBySlug = async (slug: string) => {
@@ -202,7 +275,9 @@ const getRelatedProducts = async (productId: string, category: string) => {
     _id: {
       $ne: productId,
     },
+
     category,
+
     isActive: true,
   })
     .limit(8)
@@ -211,16 +286,23 @@ const getRelatedProducts = async (productId: string, category: string) => {
     });
 };
 
-const updateProduct = async (productId: string, payload: any) => {
+const updateProduct = async (
+  productId: string,
+  payload: UpdateProductPayload,
+) => {
   const product = await Product.findById(productId);
 
   if (!product) {
     throw new AppError(404, "Product not found");
   }
 
+  /*
+   * CHECK SLUG DUPLICATE
+   */
   if (payload.slug) {
     const existingProduct = await Product.findOne({
       slug: payload.slug,
+
       _id: {
         $ne: productId,
       },
@@ -229,6 +311,17 @@ const updateProduct = async (productId: string, payload: any) => {
     if (existingProduct) {
       throw new AppError(409, "A product with this slug already exists");
     }
+  }
+
+  /*
+   * CHECK DISCOUNT PRICE
+   */
+  const finalPrice = payload.price ?? product.price;
+
+  const finalDiscountPrice = payload.discountPrice ?? product.discountPrice;
+
+  if (finalDiscountPrice !== undefined && finalDiscountPrice >= finalPrice) {
+    throw new AppError(400, "Discount price must be less than regular price");
   }
 
   const updatedProduct = await Product.findByIdAndUpdate(productId, payload, {
@@ -246,7 +339,6 @@ const deleteProduct = async (productId: string) => {
     throw new AppError(404, "Product not found");
   }
 
-  // Soft delete
   product.isActive = false;
 
   await product.save();
@@ -257,7 +349,6 @@ const deleteProduct = async (productId: string) => {
 export const productService = {
   createProduct,
   getProducts,
-  getCategories,
   getProductBySlug,
   getRelatedProducts,
   updateProduct,

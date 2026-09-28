@@ -20,16 +20,29 @@ const userSchema = new Schema<IUser>(
       trim: true,
     },
 
-    password: {
-      type: String,
-      required: true,
-      minlength: 8,
-    },
-
     phone: {
       type: String,
-      required: true,
       trim: true,
+    },
+
+    password: {
+      type: String,
+      minlength: 8,
+      select: false,
+    },
+
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+
+    authProvider: {
+      type: String,
+      enum: ["local", "google"],
+      default: "local",
+      required: true,
     },
 
     role: {

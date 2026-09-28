@@ -25,5 +25,6 @@ const userLoginZodSchema = z.object({
 
 export const userZodSchema = {
   userCreateZodSchema,
+
   userLoginZodSchema,
 };

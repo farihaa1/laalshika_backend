@@ -1,32 +1,29 @@
 import { Router } from "express";
 
 import { auth } from "../../middleware/auth";
+import { adminOnly } from "../../middleware/admin";
 import { validateRequest } from "../../middleware/validateRequest";
 
 import { productController } from "./product.controller";
 import { productUploadController } from "./product.upload.controller";
 import { productZodSchema } from "./product.validate";
-import { adminOnly } from "../../middleware/admin";
 
 const productRoutes = Router();
 
-// ==============================
-// PUBLIC ROUTES
-// ==============================
+// =====================================
+// PUBLIC
+// =====================================
 
 productRoutes.get("/", productController.getProducts);
-
-productRoutes.get("/categories", productController.getCategories);
 
 productRoutes.get("/slug/:slug", productController.getProductBySlug);
 
 productRoutes.get("/:id/related", productController.getRelatedProducts);
 
-// ==============================
-// ADMIN ROUTES
-// ==============================
+// =====================================
+// ADMIN
+// =====================================
 
-// Generate Cloudinary upload signature
 productRoutes.post(
   "/upload-signature",
   auth,
@@ -34,7 +31,6 @@ productRoutes.post(
   productUploadController.getUploadSignature,
 );
 
-// Create product
 productRoutes.post(
   "/",
   auth,
@@ -43,7 +39,6 @@ productRoutes.post(
   productController.createProduct,
 );
 
-// Update product
 productRoutes.patch(
   "/:id",
   auth,
@@ -52,7 +47,6 @@ productRoutes.patch(
   productController.updateProduct,
 );
 
-// Delete product
 productRoutes.delete("/:id", auth, adminOnly, productController.deleteProduct);
 
 export default productRoutes;
