@@ -1,24 +1,28 @@
 import { Request, Response } from "express";
 import crypto from "crypto";
+
 import config from "../../config";
 import { googleOAuth2Client } from "../../config/google";
 import { googleService } from "./google.service";
 import { catchAsync } from "../utils/catchAsync";
 
 const STATE_COOKIE = "google_oauth_state";
+const REDIRECT_COOKIE = "google_oauth_redirect";
 
 // ============================================================
-// Cookie options
+// COOKIE OPTIONS
 // ============================================================
+
+const isProduction = config.node_env === "production";
 
 const accessTokenCookieOptions = {
   maxAge: 15 * 60 * 1000,
 
   httpOnly: true,
 
-  secure: config.node_env === "production",
+  secure: isProduction,
 
-  sameSite: "lax" as const,
+  sameSite: isProduction ? ("none" as const) : ("lax" as const),
 
   path: "/",
 };
@@ -28,9 +32,9 @@ const refreshTokenCookieOptions = {
 
   httpOnly: true,
 
-  secure: config.node_env === "production",
+  secure: isProduction,
 
-  sameSite: "lax" as const,
+  sameSite: isProduction ? ("none" as const) : ("lax" as const),
 
   path: "/",
 };
@@ -42,17 +46,42 @@ const refreshTokenCookieOptions = {
 const googleLogin = catchAsync(async (req: Request, res: Response) => {
   const state = crypto.randomBytes(32).toString("hex");
 
+  let redirect = "/";
+
+  if (
+    typeof req.query.redirect === "string" &&
+    req.query.redirect.startsWith("/")
+  ) {
+    redirect = req.query.redirect;
+  }
+
+  // --------------------------------------------------------
+  // Save OAuth state
+  // --------------------------------------------------------
+
   res.cookie(STATE_COOKIE, state, {
     httpOnly: true,
-
-    secure: config.node_env === "production",
-
+    secure: isProduction,
     sameSite: "lax",
-
     maxAge: 10 * 60 * 1000,
-
     path: "/",
   });
+
+  // --------------------------------------------------------
+  // Save redirect
+  // --------------------------------------------------------
+
+  res.cookie(REDIRECT_COOKIE, redirect, {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: "lax",
+    maxAge: 10 * 60 * 1000,
+    path: "/",
+  });
+
+  // --------------------------------------------------------
+  // Google URL
+  // --------------------------------------------------------
 
   const authorizationUrl = googleOAuth2Client.generateAuthUrl({
     access_type: "offline",
@@ -76,7 +105,7 @@ const googleCallback = catchAsync(async (req: Request, res: Response) => {
     const { code, state } = req.query;
 
     // ------------------------------------------------------
-    // Validate Google callback
+    // Validate callback
     // ------------------------------------------------------
 
     if (typeof code !== "string" || typeof state !== "string") {
@@ -86,7 +115,7 @@ const googleCallback = catchAsync(async (req: Request, res: Response) => {
     }
 
     // ------------------------------------------------------
-    // Validate OAuth state
+    // Validate state
     // ------------------------------------------------------
 
     const savedState = req.cookies?.[STATE_COOKIE];
@@ -98,54 +127,70 @@ const googleCallback = catchAsync(async (req: Request, res: Response) => {
     }
 
     // ------------------------------------------------------
-    // Clear state cookie
+    // Get redirect BEFORE clearing cookies
+    // ------------------------------------------------------
+
+    let redirect = "/";
+
+    const savedRedirect = req.cookies?.[REDIRECT_COOKIE];
+
+    if (typeof savedRedirect === "string" && savedRedirect.startsWith("/")) {
+      redirect = savedRedirect;
+    }
+
+    // ------------------------------------------------------
+    // Clear OAuth cookies
     // ------------------------------------------------------
 
     res.clearCookie(STATE_COOKIE, {
       httpOnly: true,
-
-      secure: config.node_env === "production",
-
+      secure: isProduction,
       sameSite: "lax",
+      path: "/",
+    });
 
+    res.clearCookie(REDIRECT_COOKIE, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: "lax",
       path: "/",
     });
 
     // ------------------------------------------------------
-    // Login/create Google user
+    // Google login
     // ------------------------------------------------------
 
     const data = await googleService.loginWithGoogle(code);
 
     // ------------------------------------------------------
-    // Set LaalShika access token
+    // DEBUG
     // ------------------------------------------------------
 
-    res.cookie(
-      "accessToken",
+    console.log("Google login successful:", data.user.email);
 
-      data.accessToken,
-
-      accessTokenCookieOptions,
-    );
+    console.log("Redirecting to:", redirect);
 
     // ------------------------------------------------------
-    // Set LaalShika refresh token
+    // Set access token
     // ------------------------------------------------------
 
-    res.cookie(
-      "refreshToken",
+    res.cookie("accessToken", data.accessToken, accessTokenCookieOptions);
 
-      data.refreshToken,
+    // ------------------------------------------------------
+    // Set refresh token
+    // ------------------------------------------------------
 
-      refreshTokenCookieOptions,
-    );
+    res.cookie("refreshToken", data.refreshToken, refreshTokenCookieOptions);
 
     // ------------------------------------------------------
     // Redirect frontend
     // ------------------------------------------------------
 
-    return res.redirect(`${config.client_url}/dashboard`);
+    return res.redirect(
+      `${config.client_url}/Login?google=success&redirect=${encodeURIComponent(
+        redirect,
+      )}`,
+    );
   } catch (error) {
     console.error("Google callback error:", error);
 
@@ -155,6 +200,5 @@ const googleCallback = catchAsync(async (req: Request, res: Response) => {
 
 export const googleController = {
   googleLogin,
-
   googleCallback,
 };
